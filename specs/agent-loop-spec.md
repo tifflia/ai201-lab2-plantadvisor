@@ -122,7 +122,34 @@ for tool_call in assistant_message.tool_calls:
 *The loop should stop when: (a) the LLM returns a response with no tool calls, OR (b) the MAX_TOOL_ROUNDS limit is reached. Describe how you will detect each condition and what you will return in each case.*
 
 ```
-[your answer here]
+Structure: a bounded loop that runs at most MAX_TOOL_ROUNDS (5) iterations,
+using a counter so the tool-calling can never spin forever.
+
+    for _ in range(MAX_TOOL_ROUNDS):
+        response = client.chat.completions.create(... messages, tools, "auto")
+        assistant_message = response.choices[0].message
+
+        # Condition (a): no tool calls -> LLM has a final answer
+        if not assistant_message.tool_calls:
+            return assistant_message.content
+
+        # Otherwise: append assistant msg, run each tool, append results, loop again
+        messages.append(assistant_message)
+        for tool_call in assistant_message.tool_calls:
+            ... dispatch_tool() ... append {"role": "tool", ...}
+
+    # Condition (b): fell out of the loop -> hit MAX_TOOL_ROUNDS still wanting tools
+
+Detecting each condition:
+  (a) No tool calls: after each LLM call, check `assistant_message.tool_calls`.
+      If it's falsy (None/empty), the model is done deciding and has produced a
+      text answer. Return `assistant_message.content` immediately.
+  (b) Round limit reached: the `for _ in range(MAX_TOOL_ROUNDS)` exhausts without
+      ever hitting the `return` in (a). Detected by reaching the code *after* the loop body.
+
+What to return in each case:
+  (a) The assistant's text content for that turn.
+  (b) A user-readable message like "I wasn't able to finish looking that up — could you rephrase or narrow your question?"
 ```
 
 ---
@@ -132,7 +159,25 @@ for tool_call in assistant_message.tool_calls:
 *Once the loop exits because there are no more tool calls, how do you extract the text content from the response object? What field holds the string you should return?*
 
 ```
-[your answer here]
+The string lives at: response.choices[0].message.content
+
+Access path, field by field:
+  - response.choices        -> a list of completion choices; we always use [0]
+  - .choices[0].message     -> the assistant message object (same one whose
+                               .tool_calls we checked to decide whether to loop)
+  - .message.content        -> the plain-text answer string to return
+
+On the no-tool-calls path, .tool_calls is None and .content holds the final text, so:
+
+    if not assistant_message.tool_calls:
+        return assistant_message.content
+
+Note: .content can be None when the message instead carries tool_calls (the
+model chose to call a tool rather than speak). That case never reaches this
+return, because we only get here once .tool_calls is falsy. As a defensive
+guard against an empty/None content (per the "never empty" contract), fall back:
+
+    return assistant_message.content or "Sorry, I couldn't generate a response."
 ```
 
 ---
@@ -145,19 +190,19 @@ for tool_call in assistant_message.tool_calls:
 
 ```
 Query: "How should I care for my calathea?"
-Round 1 tool call: [tool name, args]
-Round 2 tool call: [tool name, args] (if any)
-Final response: [brief description]
+Round 1 tool call: [lookup_plant, {'plant_name': 'calathea'}]
+Round 2 tool call: [get_seasonal_conditions, {}] (if any)
+Final response: The agent references the care data for calatheas including watering instructions, light conditions, humidity, and fertilizations with some specific instructions for care in the current season.
 ```
 
 **What happens when you ask about a plant that isn't in the database?**
 
 ```
-[describe the behavior you observed]
+The agent will acknowledge that the plant isn't in the database and then try to offer general advice. This behavior follows graceful degradation and is enforced by the not-found message in lookup_plant() given back to the LLM.
 ```
 
 **One thing about the tool call API that surprised you:**
 
 ```
-[your answer here]
+When the model calls a tool with no args, the tool_call.function.arguments string comes back as "null"/"" rather than "{}", so you can't assume json.loads(arguments) returns a dict.
 ```

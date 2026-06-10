@@ -128,4 +128,58 @@ def run_agent(user_message: str, history: list) -> str:
 
     Before writing code, complete specs/agent-loop-spec.md.
     """
-    return "🌱 Agent not yet implemented. Complete Milestone 2 to activate the Plant Advisor."
+    # Messages list structure: system prompt + replayed history + new user message
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    for turn in history:
+        if isinstance(turn, dict):
+            # Gradio "messages" format: flat list of {"role", "content", ...} dicts.
+            # Keep only role/content — drop extra keys (metadata, options) the API
+            # doesn't expect.
+            messages.append({"role": turn["role"], "content": turn["content"]})
+        else:
+            # Gradio "tuples" format: [user_msg, assistant_msg] pairs.
+            user_msg, assistant_msg = turn
+            messages.append({"role": "user", "content": user_msg})
+            if assistant_msg:
+                messages.append({"role": "assistant", "content": assistant_msg})
+
+    messages.append({"role": "user", "content": user_message})
+
+    # Bounded tool-calling loop — at most MAX_TOOL_ROUNDS LLM calls so it can
+    # never spin forever.
+    for _ in range(MAX_TOOL_ROUNDS):
+        response = _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            tool_choice="auto",
+        )
+        assistant_message = response.choices[0].message
+
+        # Termination condition (a): no tool calls — the LLM has a final answer.
+        if not assistant_message.tool_calls:
+            return assistant_message.content or "Sorry, I couldn't generate a response."
+
+        # Otherwise the LLM wants tools. Append assistant message BEFORE the
+        # tool results
+        messages.append(assistant_message)
+
+        for tool_call in assistant_message.tool_calls:
+            tool_name = tool_call.function.name
+            # A tool called with no args can arrive as "null" or "" rather than
+            # "{}"; normalize both to an empty dict so dispatch gets a real dict.
+            tool_args = json.loads(tool_call.function.arguments or "{}") or {}
+            tool_result = dispatch_tool(tool_name, tool_args)
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": tool_result,
+            })
+
+    # Termination condition (b): exhausted MAX_TOOL_ROUNDS still wanting tools.
+    return (
+        "I wasn't able to finish looking that up — could you rephrase or "
+        "narrow your question?"
+    )
