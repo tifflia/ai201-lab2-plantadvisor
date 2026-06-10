@@ -70,7 +70,11 @@ likely match for clean user input. Aliases are the broadest net, so they go last
 *Aliases are stored as a list of strings. How will you check if the normalized input matches any alias in the list? Write your approach in pseudocode or plain English.*
 
 ```
-[your answer here]
+Exact, case-insensitive membership test against the alias list (not substring).
+
+for plant in _plant_db.values():
+    if normalized in [alias.lower() for alias in plant["aliases"]]:
+        return {"found": True, "plant": plant}
 ```
 
 ---
@@ -80,7 +84,7 @@ likely match for clean user input. Aliases are the broadest net, so they go last
 *When a plant isn't found, the agent will read your message and use it to decide what to tell the user. Write the exact string you'll return — make it useful to the agent, not just to a human reading logs.*
 
 ```
-[your answer here]
+"No database entry for '{normalized}'. This plant isn't in the curated database, so no care data is available. Answer from general houseplan knowledge if you can, and let the user know this plant isn't in the database so your advice is more general."
 ```
 
 ---
@@ -91,17 +95,17 @@ likely match for clean user input. Aliases are the broadest net, so they go last
 
 **Test: does `"devil's ivy"` return the pothos entry?**
 ```
-[yes / no — if no, describe what happened]
+yes
 ```
 
 **Test: does `"SNAKE PLANT"` return the snake plant entry?**
 ```
-[yes / no — if no, describe what happened]
+yes
 ```
 
 **One edge case you discovered while implementing:**
 ```
-[your answer here]
+If a plant has an alias that matches the display name or key of another plant, the results for the latter plant will appear instead as those searches are conducted first. There doesn't seem to be any of these overlaps in the given database, but it could be possible in a bigger plant database.
 ```
 
 ---
@@ -183,12 +187,12 @@ The full season dict from `_season_data`, plus a `detected_season` boolean. Exam
 
 **Test: does calling with `season=None` return the correct season for the current month?**
 ```
-Current month: [month]
-Expected season: [season]
-Returned season: [season]
+Current month: June
+Expected season: Summer
+Returned season: Summer
 ```
 
 **Test: does calling with `season="winter"` return winter data regardless of the current month?**
 ```
-[yes / no]
+yes
 ```
